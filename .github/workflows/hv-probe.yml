@@ -26,7 +26,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build bento at the rev the app pins
-        run: cargo install --locked --git https://github.com/triandco/smolbento.git --rev f8d0bf2b824fe41b6e8591c1bfde163b575f063c --bin smolbento smolbento 2>&1 | tail -3
+        run: |
+          cargo install --locked --git https://github.com/triandco/smolbento.git --rev f8d0bf2b824fe41b6e8591c1bfde163b575f063c --bin smolbento smolbento
           ln -s "$HOME/.cargo/bin/smolbento" "$HOME/.cargo/bin/bento"
 
       - name: Start a claude sandbox as the TWM does
