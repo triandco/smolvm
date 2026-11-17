@@ -1,0 +1,40 @@
+name: patched-release
+
+# Builds smolvm with the patches on this branch for macOS arm64 and publishes it as a release.
+# Push a tag patched-<upstream version>-<n>, for example patched-1.35.1-1.
+on:
+  push:
+    tags: ['patched-*']
+
+permissions:
+  contents: write
+
+jobs:
+  darwin-arm64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check out the patched libkrun
+        run: git submodule update --init --depth 1 libkrun
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Install the libkrun build tools
+        run: brew install llvm lld pkgconf virglrenderer libepoxy
+
+      - name: Build
+        run: |
+          suffix="patched.${GITHUB_REF_NAME##*-}"
+          echo "SUFFIX=$suffix" >> "$GITHUB_ENV"
+          ./scripts/build-patched-dist.sh "$suffix" dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "smolvm 1.35.1 ($SUFFIX)" \
+            --notes "smolvm 1.35.1 with the macOS long socket path patch. Only smolvm-bin and lib/libkrun.dylib differ from the upstream v1.35.1 release."
