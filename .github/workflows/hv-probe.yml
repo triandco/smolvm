@@ -1,0 +1,52 @@
+name: hv-probe
+
+# Checks whether a GitHub-hosted runner can boot a smolvm VM.
+on:
+  push:
+    branches: [hv-probe]
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            asset: https://github.com/triandco/smolvm/releases/download/patched-1.35.1-1/smolvm-1.35.1-patched.1-darwin-arm64.tar.gz
+          - os: macos-26
+            asset: https://github.com/triandco/smolvm/releases/download/patched-1.35.1-1/smolvm-1.35.1-patched.1-darwin-arm64.tar.gz
+          - os: ubuntu-24.04
+            asset: https://github.com/smol-machines/smolvm/releases/download/v1.35.1/smolvm-1.35.1-linux-x86_64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Hypervisor support
+        run: |
+          uname -a
+          if [ "$(uname)" = Darwin ]; then
+            sysctl kern.hv_support kern.hv_vmm_present || true
+          else
+            ls -l /dev/kvm || true
+            grep -cE 'vmx|svm' /proc/cpuinfo || true
+          fi
+
+      - name: Open /dev/kvm to the runner user
+        if: runner.os == 'Linux'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Boot a VM
+        run: |
+          curl -fsSL -o smolvm.tar.gz "${{ matrix.asset }}"
+          tar -xzf smolvm.tar.gz
+          dir=$(find . -maxdepth 1 -type d -name 'smolvm-*' | head -1)
+          if [ "$(uname)" = Darwin ]; then
+            codesign --force --sign - --entitlements /dev/stdin "$dir/smolvm-bin" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>com.apple.security.hypervisor</key><true/></dict></plist>
+          PLIST
+          fi
+          timeout 300 "$dir/smolvm" machine run --net --image alpine -- uname -a
