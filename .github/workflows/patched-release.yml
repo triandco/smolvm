@@ -1,7 +1,8 @@
 name: patched-release
 
-# Builds smolvm with the patches on this branch for macOS arm64 and publishes it as a release.
-# Push a tag patched-<upstream version>-<n>, for example patched-1.35.1-1.
+# Builds smolvm with the patches on this branch for macOS arm64, repackages the upstream
+# Linux x86_64 build, and publishes both as a release.
+# Push a tag patched-<upstream version>-<n>, for example patched-1.35.1-2.
 on:
   push:
     tags: ['patched-*']
@@ -26,15 +27,39 @@ jobs:
         run: brew install llvm lld pkgconf virglrenderer libepoxy
 
       - name: Build
-        run: |
-          suffix="patched.${GITHUB_REF_NAME##*-}"
-          echo "SUFFIX=$suffix" >> "$GITHUB_ENV"
-          ./scripts/build-patched-dist.sh "$suffix" dist
+        run: ./scripts/build-patched-dist.sh darwin-arm64 "patched.${GITHUB_REF_NAME##*-}" dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: darwin-arm64
+          path: dist/*
+
+  linux-x86_64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Repackage
+        run: ./scripts/build-patched-dist.sh linux-x86_64 "patched.${GITHUB_REF_NAME##*-}" dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-x86_64
+          path: dist/*
+
+  release:
+    needs: [darwin-arm64, linux-x86_64]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "smolvm 1.35.1 ($SUFFIX)" \
-            --notes "smolvm 1.35.1 with the macOS long socket path patch. Only smolvm-bin and lib/libkrun.dylib differ from the upstream v1.35.1 release."
+          gh release create "$GITHUB_REF_NAME" dist/* -R "$GITHUB_REPOSITORY" \
+            --title "smolvm 1.35.1 (patched.${GITHUB_REF_NAME##*-})" \
+            --notes "smolvm 1.35.1 with the macOS long socket path patch. On darwin-arm64 only smolvm-bin and lib/libkrun.dylib differ from the upstream v1.35.1 release. linux-x86_64 has the upstream binaries. In both, agent-rootfs ships as agent-rootfs.tar.gz, which smolvm extracts on first use."
