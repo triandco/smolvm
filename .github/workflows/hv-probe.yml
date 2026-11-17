@@ -23,16 +23,11 @@ jobs:
           ls -la engine
           echo "$PWD/engine" >> "$GITHUB_PATH"
 
-      - name: Boot a VM with the engine alone
-        run: |
-          stamp() { while IFS= read -r line; do printf '%4ss %s\n' "$SECONDS" "$line"; done; }
-          SECONDS=0
-          smolvm machine run --net --image alpine -- uname -a 2>&1 | stamp
-
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build bento at the rev the app pins
-        run: cargo install --locked --git https://github.com/triandco/smolbento.git --rev f8d0bf2b824fe41b6e8591c1bfde163b575f063c --bin bento smolbento 2>&1 | tail -3
+        run: cargo install --locked --git https://github.com/triandco/smolbento.git --rev f8d0bf2b824fe41b6e8591c1bfde163b575f063c --bin smolbento smolbento 2>&1 | tail -3
+          ln -s "$HOME/.cargo/bin/smolbento" "$HOME/.cargo/bin/bento"
 
       - name: Start a claude sandbox as the TWM does
         env:
