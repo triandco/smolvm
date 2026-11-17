@@ -1,53 +1,51 @@
 name: hv-probe
 
-# Checks whether a GitHub-hosted runner can boot a smolvm VM.
+# Checks the first start of a claude sandbox on a hosted runner.
 on:
   push:
     branches: [hv-probe]
 
 jobs:
   probe:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            asset: https://github.com/triandco/smolvm/releases/download/patched-1.35.1-1/smolvm-1.35.1-patched.1-darwin-arm64.tar.gz
-          - os: macos-26
-            asset: https://github.com/triandco/smolvm/releases/download/patched-1.35.1-1/smolvm-1.35.1-patched.1-darwin-arm64.tar.gz
-          - os: ubuntu-24.04
-            asset: https://github.com/smol-machines/smolvm/releases/download/v1.35.1/smolvm-1.35.1-linux-x86_64.tar.gz
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
-      - name: Hypervisor support
-        run: |
-          uname -a
-          if [ "$(uname)" = Darwin ]; then
-            sysctl kern.hv_support kern.hv_vmm_present || true
-          else
-            ls -l /dev/kvm || true
-            grep -cE 'vmx|svm' /proc/cpuinfo || true
-          fi
-
       - name: Open /dev/kvm to the runner user
-        if: runner.os == 'Linux'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
 
-      - name: Boot a VM
+      - name: Install the engine from the fork release
         run: |
-          curl -fsSL -o smolvm.tar.gz "${{ matrix.asset }}"
-          tar -xzf smolvm.tar.gz
-          dir=$(find . -maxdepth 1 -type d -name 'smolvm-*' | head -1)
-          if [ "$(uname)" = Darwin ]; then
-            codesign --force --sign - --entitlements /dev/stdin "$dir/smolvm-bin" <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict><key>com.apple.security.hypervisor</key><true/></dict></plist>
-          PLIST
-          fi
-          "$dir/smolvm" machine run --net --image alpine -- uname -a
+          curl -fsSL -o smolvm.tar.gz https://github.com/triandco/smolvm/releases/download/patched-1.35.1-2/smolvm-1.35.1-patched.2-linux-x86_64.tar.gz
+          mkdir engine && tar -xzf smolvm.tar.gz -C engine --strip-components=1
+          ls -la engine
+          echo "$PWD/engine" >> "$GITHUB_PATH"
+
+      - name: Boot a VM with the engine alone
+        run: |
+          stamp() { while IFS= read -r line; do printf '%4ss %s\n' "$SECONDS" "$line"; done; }
+          SECONDS=0
+          smolvm machine run --net --image alpine -- uname -a 2>&1 | stamp
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build bento at the rev the app pins
+        run: cargo install --locked --git https://github.com/triandco/smolbento.git --rev f8d0bf2b824fe41b6e8591c1bfde163b575f063c --bin bento smolbento 2>&1 | tail -3
+
+      - name: Start a claude sandbox as the TWM does
+        env:
+          SMOLBENTO_SOCKET_DIR: ${{ runner.temp }}/sbt
+        run: |
+          export SMOLBENTO_SMOLVM="$(command -v smolvm)"
+          stamp() { while IFS= read -r line; do printf '%4ss %s\n' "$SECONDS" "$line"; done; }
+          mkdir -p ws
+          echo "== without a network policy"
+          SECONDS=0
+          timeout 180 bento run --detach --name first claude "$PWD/ws" < /dev/null 2>&1 | stamp; echo "exit ${PIPESTATUS[0]}"
+          echo "== with the balanced policy"
+          bento policy init balanced 2>&1 | tail -1
+          SECONDS=0
+          timeout 600 bento run --detach --name second claude "$PWD/ws" < /dev/null 2>&1 | stamp; echo "exit ${PIPESTATUS[0]}"
+          bento ls 2>&1
