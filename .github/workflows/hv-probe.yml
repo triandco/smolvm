@@ -18,6 +18,7 @@ jobs:
           - os: ubuntu-24.04
             asset: https://github.com/smol-machines/smolvm/releases/download/v1.35.1/smolvm-1.35.1-linux-x86_64.tar.gz
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - name: Hypervisor support
         run: |
@@ -49,4 +50,4 @@ jobs:
           <plist version="1.0"><dict><key>com.apple.security.hypervisor</key><true/></dict></plist>
           PLIST
           fi
-          timeout 300 "$dir/smolvm" machine run --net --image alpine -- uname -a
+          "$dir/smolvm" machine run --net --image alpine -- uname -a
