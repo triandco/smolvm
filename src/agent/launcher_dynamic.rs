@@ -1280,9 +1280,11 @@ pub(crate) fn truncate_console_log(path: &Path) {
     }
 }
 
-/// Longest Unix socket path the host accepts: `sockaddr_un.sun_path` holds 104
-/// bytes on macOS and 108 elsewhere, including the terminating NUL.
-const MAX_UNIX_SOCKET_PATH: usize = if cfg!(target_os = "macos") { 103 } else { 107 };
+/// Longest Unix socket path the host accepts. `sockaddr_un.sun_path` holds 108
+/// bytes on Linux, including the terminating NUL. On macOS it holds 104, but
+/// smolvm and libkrun build a longer address by hand, up to the kernel's
+/// `SOCK_MAXADDRLEN` (255) less `sun_len`, `sun_family` and the NUL.
+const MAX_UNIX_SOCKET_PATH: usize = if cfg!(target_os = "macos") { 252 } else { 107 };
 
 /// libkrun binds the sockets it listens on inside `krun_start_enter` and
 /// reports a path that does not fit only as a bare EINVAL, which reads like a
